@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Plan Air Route</title>
+    <style>
+      /* Always set the map height explicitly to define the size of the div
+       * element that contains the map. */
+      #map {
+        height: 100%;
+      }
+      /* Optional: Makes the sample page fill the window. */
+      html, body {
+        height: 100%;
+        margin: 0;
+        padding: 0;
+      }
+      #floating-panel {
+        position: absolute;
+        top: 10px;
+        left: 25%;
+        z-index: 5;
+        background-color: #fff;
+        padding: 5px;
+        border: 1px solid #999;
+        text-align: center;
+        font-family: 'Roboto','sans-serif';
+        line-height: 30px;
+        padding-left: 10px;
+      }
+    </style>
+	<script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.3/jquery.min.js"></script>
+  <meta http-equiv="Access-Control-Allow-Origin" content="*">
+  </head>
+  <body>
+    <div id="floating-panel">
+      <input type="text" id="routeName" placeholder="Route Name" />
+  		<input type=button onclick="createXMLobject(markers);" value="Save Route">
+  		<input id="getRouteButton" onClick="getRoute();" type=button value="Get Route">
+  		<input onclick="deleteMarkers();" type=button value="Clear Map">
+    </div>
+    <div id="map"></div>
+    <script>
+      var map;
+      var markers = [];
+      var polylinePath = [];
+      var polyline;
+
+      function initMap() {
+        var berlin = {lat: 52.520008, lng: 13.404954}; // Centre map on Berlin.
+
+        map = new google.maps.Map(document.getElementById('map'), {
+          zoom: 4,
+          center: berlin,
+          mapTypeId: 'terrain'
+        });
+
+        // This event listener will call addMarker() when the map isclicked.
+        map.addListener('click', function(event) {
+          addMarker(event.latLng);
+        });
+
+      }
+
+      // Adds a marker to the map and push to the array.
+      function addMarker(location) {
+        try{
+          polyline.setMap(null);
+        }catch(err){
+          // Do nothing.
+        }
+
+        var marker = new google.maps.Marker({
+          position: location,
+          map: map
+        });
+        markers.push(marker);
+        polylinePath.push(location);
+
+        addPolyline();
+      }
+
+      function addPolyline(){
+
+        polyline = new google.maps.Polyline({
+          path: polylinePath,
+          strokeColor: '#FF0000',
+          strokeOpacity: 1.0,
+          strokeWeight: 2
+        });
+
+        polyline.setMap(map);
+      }
+
+      function deletePolyline(){
+        polyline.setMap(null);
+        polylinePath = [];
+      }
+
+      // Sets the map on all markers in the array.
+      function setMapOnAll(map) {
+        for (var i = 0; i < markers.length; i++) {
+          markers[i].setMap(map);
+        }
+      }
+
+      // Creates the Route XML-object and passes it to microservice via Ajax.
+      function createXMLobject(list){ 
+      	var doc = document.implementation.createDocument(null, null);
+
+        name = $("#routeName").val();
+
+        // Set XML version.
+        doc.xmlVersion = "1.0";
+
+        // Create <routes> root element.
+        var routes = doc.createElement("routes")
+        doc.appendChild(routes);
+
+      	// Create <route> element with name attribute.
+      	var route = doc.createElement("route");
+        routes.append(route);
+      	route.setAttribute("name", name);
+
+        counter = 0;
+        for (counter=0; counter < list.length; counter++) { // For every item in list, do:
+          // Create <routeleg> element and append to <route>.
+          var routeleg = doc.createElement("routeleg");
+          route.appendChild(routeleg);
+
+          // Create <pos> element, assign value and append to <routeleg>.
+          var pos = doc.createElement("pos");
+          var textnode = document.createTextNode(counter + 1);
+          pos.appendChild(textnode);
+          routeleg.appendChild(pos);
+
+          // Create <lnglat> element, assign value and append to <routeleg>
+          var lnglat = doc.createElement("lnglat");
+          var textnode = document.createTextNode(list[counter].getPosition());
+          lnglat.appendChild(textnode);
+          routeleg.appendChild(lnglat);
+        }
+
+        // Serialize XML object into string named 'text' so it can be passed via URL.
+        var serial = new XMLSerializer();
+        var newXmlStr = serial.serializeToString(doc);
+        var text;
+        for (a in newXmlStr){
+          text = text + newXmlStr[a];
+        }
+
+        // Replaces  'undefined' in begining of  object, replaces with XML tagg.
+        text = text.replace('undefined', '<?xml version="1.0"?>');
+
+        // Pass XML object via a GET request and URL to microservice.
+        var xhttp = new XMLHttpRequest();
+        xhttp.open("GET", "http://localhost:8080/saveRoute?route="+text, true);
+        xhttp.send();
+        return doc;
+      }
+
+      function clearMarkers() {
+        setMapOnAll(null);
+      }
+
+      // Deletes all markers in the array by removing references to them.
+      function deleteMarkers() {
+        clearMarkers();
+        markers = [];
+        try{ // Try to delete polylines if they exist.
+          deletePolyline();
+        }catch(err){
+          // If no polylines exists yet, do nothing.
+        }
+      }
+
+      function getRoute(){
+
+        var xhttp = new XMLHttpRequest();
+        xhttp.open("GET", "http://localhost:8080/getRoute?route="+$("#routeName").val(), true);
+        xhttp.send();
+
+        xhttp.onreadystatechange = function() {
+          if (this.readyState == 4 && this.status == 200) {
+            deleteMarkers(); // Delete existing markers before loading route.
+            var parser, counter;
+
+            var xmlobj = xhttp.responseXML;
+
+            // Get all lng/lat-elements and store in lists.
+            var lng_list = xmlobj.getElementsByTagName("lng");
+            var lat_list = xmlobj.getElementsByTagName("lat");
+
+            for(counter=0; counter<lng_list.length;counter++){ // For every element in lng and lat lists, do:
+
+              // Convert coordinates from string values to numbers.
+              var lat_ins = Number(lat_list[counter].firstChild.nodeValue);
+              var lng_ins = Number(lng_list[counter].firstChild.nodeValue);
+
+              // Create LatLng-object and add marker to each location.
+              var location = new google.maps.LatLng(lng_ins, lat_ins);
+              addMarker(location);
+            }
+          }
+        }
+      }
+    </script>
+    <script async defer
+    src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCO3hE4bE7WV7mGuXL4kn9caoWI44tD8Ic&callback=initMap">
+    </script>
+  </body>
+</html>
