@@ -1,5 +1,5 @@
 # Google Maps Mashup
- A Google Maps Mashup that allows for planning of aircraft routes.
+A Google Maps Mashup that allows for planning of aircraft routes, saving and retreiving them via a microservice written in Python.
 
 Assignment.pdf : Requirements/Business Case.
 
